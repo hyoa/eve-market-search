@@ -3,3 +3,4 @@ serverless.yml
 .serverless
 tasks/env
 tasks/services/__pycache__
+front/functions
