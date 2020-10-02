@@ -23,11 +23,10 @@ exports.handler = async ({ body }, context, callback) => {
       body: JSON.stringify(data.Items)
     }
   } catch (e) {
-    console.log(e)
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 'status': 'nok' })
+      body: JSON.stringify({ 'status': e.message })
     }
   }
 }
