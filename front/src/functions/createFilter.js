@@ -26,7 +26,7 @@ exports.handler = async ({ body }, context, callback) => {
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 'status': 'nok' })
+      body: JSON.stringify({ 'status': process.env.AWS_KEY })
     }
   }
 
