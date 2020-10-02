@@ -1,0 +1,172 @@
+service: eve-market-search
+
+provider:
+  name: aws
+  region: eu-west-3
+  stage: ${opt:stage, 'dev'}
+  runtime: python3.7
+  environment:
+    AWS_KEY:
+    AWS_SECRET:
+    BUCKET_STORAGE: ${self:custom.bucketStorage}
+    TABLE_PREFIX: ${self:custom.prefix}
+  tags:
+    project: ${self:service}-${self:provider.stage}
+
+plugins:
+  - serverless-python-requirements
+  - serverless-step-functions
+
+custom:
+  pythonRequirements:
+    dockerizePip: true
+  bucketStorage: ${self:service}-${self:provider.stage}-storage
+  prefix: ${self:service}-${self:provider.region}-${self:provider.stage}
+
+package:
+  individually: true
+  exclude:
+    - front/**
+
+functions:
+  pull_orders:
+    runtime: python3.7
+    handler: handlers/retrieve_orders.main
+    timeout: 900
+    memorySize: 1024
+    module: tasks
+
+  pull_history:
+    runtime: python3.7
+    handler: handlers/retrieve_history.main
+    timeout: 900
+    memorySize: 1024
+    module: tasks
+  
+  prepare_workflows:
+    runtime: python3.7
+    handler: handlers/prepare_workflows.main
+    timeout: 100
+    memory_size: 256
+    module: tasks
+
+  create_report:
+    runtime: python3.7
+    handler: handlers/create_report.main
+    timeout: 100
+    memory_size: 256
+    module: tasks
+
+stepFunctions:
+  validate: true
+  stateMachines:
+    PullOrders:
+      name: ${self:custom.prefix}-sfn-pullOrders
+      events:
+        - schedule: cron(0/30 * * * ? *) 
+      definition:
+        Comment: "Pull orders for regions in filters"
+        StartAt: PrepareWorkflow
+        States:
+          PrepareWorkflow:
+            Type: Task
+            Resource:
+              Fn::GetAtt: [prepare_workflows,Arn]
+            Next: FetchOrders
+          FetchOrders:
+            Type: Map
+            ItemsPath: "$.region_ids"
+            ResultPath: "$.order_indexes"
+            Iterator:
+              StartAt: PullOrders
+              States:
+                PullOrders:
+                  Type: Task
+                  Resource:
+                    Fn::GetAtt: [pull_orders,Arn]
+                  End: true
+            Next: CreateReports
+          CreateReports:
+            Type: Map
+            ItemsPath: "$.filter_ids"
+            ResultPath: "$.filters"
+            Iterator:
+              StartAt: CreateReport
+              States:
+                CreateReport:
+                  Type: Task
+                  Resource:
+                    Fn::GetAtt: [create_report,Arn]
+                  End: true
+            End: true
+
+    PullHistory:
+      name: ${self:custom.prefix}-sfn-pullHistory
+      events:
+        - schedule: cron(0 1 * * ? *) 
+      definition:
+        Comment: "Pull history for regions in filters"
+        StartAt: PrepareWorkflow
+        States:
+          PrepareWorkflow:
+            Type: Task
+            Resource:
+              Fn::GetAtt: [prepare_workflows,Arn]
+            Next: FetchOrders
+          FetchOrders:
+            Type: Map
+            ItemsPath: "$.region_ids"
+            ResultPath: "$.history_indexes"
+            Iterator:
+              StartAt: PullHistory
+              States:
+                PullHistory:
+                  Type: Task
+                  Resource:
+                    Fn::GetAtt: [pull_history,Arn]
+                  End: true
+            End: true
+resources:
+  Resources:
+    StorageBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.bucketStorage}
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+    FilterTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.prefix}-filter
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
+    HistoryIndexesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.prefix}-history-index
+        AttributeDefinitions:
+          - AttributeName: region_id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: region_id
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
+    OrdersIndexesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.prefix}-orders-index
+        AttributeDefinitions:
+          - AttributeName: region_id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: region_id
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
