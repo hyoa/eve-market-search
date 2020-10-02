@@ -7,7 +7,7 @@
     "build": "vue-cli-service build",
     "lint": "vue-cli-service lint",
     "lambda:run": "netlify-lambda serve src/functions",
-    "lambda:build": "netlify-lambda build src/lambda",
+    "lambda:build": "netlify-lambda build src/functions",
     "build:all": "npm run lambda:build && npm run build"
   },
   "dependencies": {
